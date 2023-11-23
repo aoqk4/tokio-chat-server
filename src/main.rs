@@ -3,20 +3,23 @@ use tokio::{
     net::TcpListener,
     sync::broadcast,
 };
+use anyhow::Result;
 
 #[tokio::main]
-async fn main() -> Result<(), std::io::Error> {
+async fn main() -> Result<(), anyhow::Error> {
     // IP:PORT 주소 묶는다.
     let listener = TcpListener::bind("127.0.0.1:8090").await?;
 
     // channel의 정확한 타입 추론 불가능 하다면? -> turbofish 문법으로 타입 추정 가능캐 하기
-    // 10개 채널 생성한다.
+    // 채널 생성한다.
     let (tx, mut _rx) = broadcast::channel(10);
-    
+
     // 루프 시작
     loop {
         // 클라이언트 접속을 허가한다 -> SOCKET 받아온다.
         let (mut socket, addr) = listener.accept().await?;
+
+        tx.send((format!("{} IP is comming!\n", addr).to_string(), addr))?;
 
         // tx를 하나 클론 떠온다.
         let tx = tx.clone();
@@ -58,7 +61,7 @@ async fn main() -> Result<(), std::io::Error> {
 
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
                         if addr != other_addr {
-                            writer.write_all(msg.as_bytes()).await.unwrap();
+                            writer.write_all(format!("{} : {}",other_addr, msg).as_bytes()).await.unwrap();
                         }
                     }
                 }
