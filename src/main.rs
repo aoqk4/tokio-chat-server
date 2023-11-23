@@ -1,18 +1,22 @@
+use std::net::SocketAddr;
+
+use anyhow::Result;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
     sync::broadcast,
 };
-use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    dotenvy::dotenv()?;
+
     // IP:PORT 주소 묶는다.
     let listener = TcpListener::bind("127.0.0.1:8090").await?;
 
     // channel의 정확한 타입 추론 불가능 하다면? -> turbofish 문법으로 타입 추정 가능캐 하기
     // 채널 생성한다.
-    let (tx, mut _rx) = broadcast::channel(10);
+    let (tx, mut _rx) = broadcast::channel::<(String, SocketAddr)>(10);
 
     // 루프 시작
     loop {
