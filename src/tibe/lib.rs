@@ -2,28 +2,32 @@ use anyhow::Result;
 use tiberius::{AuthMethod, Client, Config, Query};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
+use tracing::{info, warn};
+use tracing::instrument;
 
-/// ## Title: 
-/// 
+/// ## Title:
+///
 ///     tiberius 를 통한 로그인 체크
 ///
-/// ## Parameters : 
-/// 
+/// ## Parameters :
+///
 ///     user_id: &string
 ///     유저 아이디
-/// 
-///     user_pw: &string 
-///     유저 비밀번호 
 ///
-/// ## Return : 
-/// 
+///     user_pw: &string
+///     유저 비밀번호
+///
+/// ## Return :
+///
 ///     로그인 성공인지 실패인지에 대한 결과
 ///     Aysnc Result<bool, anyhow::Error>
-/// 
+///
 /// ## 수정 내역 :
-/// 
+///
 ///     23.11.24
 ///     아이디 비빌번호 가져오는 기본적인 함수 init
+/// 
+#[instrument]
 pub async fn db_tiberius(user_id: &String, user_pw: &String) -> Result<bool, anyhow::Error> {
     // ENV에 DB 정보 가져온다.
     dotenvy::dotenv().unwrap();
@@ -75,15 +79,25 @@ pub async fn db_tiberius(user_id: &String, user_pw: &String) -> Result<bool, any
     }
 
     // excute 한다.
-    let res = select_query.query(&mut client).await?;
+    let res = select_query.query(&mut client).await.unwrap().into_row();
 
-    // row 데이터 가져오면
-    let row = res.into_row().await?.unwrap();
-
-    // 데이터 있는지 체크하고 리턴
-    if row.len() > 0 {
-        return Ok(true);
+    match res.await {
+        Ok(res) => {
+            // row 데이터 가져오면
+            let row = res.unwrap();
+            // 데이터 있는지 체크하고 리턴
+            if row.len() > 0 {
+                // 서버 로깅
+                info!("UserName: {} 의 DB 처리 성공!", user_id);
+                return Ok(true);
+            }
+            // 서버 로깅
+            warn!("UserName: {} 가 DB에 없음", user_id);
+            Ok(false)
+        }
+        Err(err) => {
+            warn!("DB 상의 에러 에러 : {}", err);
+            Ok(false)
+        }
     }
-
-    Ok(false)
 }

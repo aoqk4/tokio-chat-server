@@ -16,6 +16,10 @@ anyhow={version = "*"}
 # .env
 dotenvy={version = "*"}
 
+# logging?
+tracing = { version = "*"}
+tracing-subscriber = "*"
+
 [dependencies.tokio-util]
 version = "*"
 features = ["compat"]
