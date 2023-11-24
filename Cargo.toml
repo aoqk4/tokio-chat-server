@@ -6,18 +6,24 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-# DB Controll
-# rbs={version = "*"}
-# rbatis={version = "*"}
-# rbdc-mssql={version = "*"}
+
 # Async Await
 tokio={version = "*", features = ["full"]}
-
-# Serializing and Deserializing
-serde={version = "*", features = ["derive"]}
 
 # Result<() , Anyhow::Error>
 anyhow={version = "*"}
 
 # .env
 dotenvy={version = "*"}
+
+[dependencies.tokio-util]
+version = "*"
+features = ["compat"]
+
+# DB Controll
+[dependencies.tiberius]
+version = "*"
+
+
+[lib]
+path = "src/tibe/lib.rs"
