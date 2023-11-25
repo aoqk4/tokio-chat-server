@@ -8,8 +8,12 @@ use tokio::{
     },
     sync::broadcast::{self},
 };
+use tracing::instrument;
+use tracing::{info, warn};
+
 use tokio_chat_server::db_tiberius;
 
+#[instrument]
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     tracing_subscriber::fmt::init();
@@ -43,15 +47,30 @@ async fn main() -> Result<(), anyhow::Error> {
             // 버퍼 메시지를 저정할 공간
             let mut line = String::new();
 
+            // 로그인 체크 Result 만들어 주고
             let login_res =
-                check_db_logic(&mut writer, &mut reader, &mut line, &tx, &mut rx, &addr)
-                    .await
-                    .unwrap();
+                check_db_logic(&mut writer, &mut reader, &mut line, &tx, &mut rx, &addr).await;
 
-            if !login_res {
-                return Ok::<(), anyhow::Error>;
+            // 에러 핸들링 위한 match
+            match login_res {
+                // 소유권 뺏기면 안되니깐 ref로 Option 만들어 주고
+                Ok(ref res) => {
+                    // 빈 버퍼(ID 가 없어요 나올 때(현재로서는 나오진 않겠다만..))
+                    if res.is_empty() {
+                        return Ok::<(), anyhow::Error>;
+                    }
+                }
+                // 에러처리
+                Err(err) => {
+                    warn!("ID PW 입력 중 에러 발생 ! err : {}", err);
+                    return Ok::<(), anyhow::Error>;
+                }
             }
 
+            // return 안당했으면 (에러 안났으면) unwrap() 해주고
+            let user_id_string = login_res.unwrap();
+            
+            // ID 처리 끝났으니깐 한번 비워준다.
             line.clear();
 
             // 버퍼 핸들링 루프 시작
@@ -65,20 +84,38 @@ async fn main() -> Result<(), anyhow::Error> {
                         if res.unwrap() == 0 {
                             return Ok::<(), anyhow::Error>;
                         }
+
+                        // 만약에 그만두고 싶어요 하면
+                        if line.trim() == "IWANTEXIT"{
+                            
+                            // 채팅창 나갔다고 알려주고
+                            tx.send((format!("{} : 얘가 채팅창을 나갔어요.\n", user_id_string.trim()), addr)).unwrap();
+                            info!("채팅 그만두고 싶은 놈 : {}", user_id_string.trim());
+
+                            // rx에 전달해주고
+                            let (msg, other_addr) = rx.recv().await.unwrap();
+
+                            // 다른사람들에게 나갔다고 뿌려준다.
+                            if addr != other_addr {
+                                writer.write_all(msg.as_bytes()).await.unwrap();
+                            }
+
+                            return Ok::<(), anyhow::Error>;
+                        }
+
                         // 메시지 버퍼와 IP 주소를 보낸다.
                         tx.send((line.clone(), addr)).unwrap();
 
                         // 메시지 공간 청소
                         line.clear();
                     }
-
                     // RECEIVE 받는다. (지금까지 버퍼에 저장된 값을 읽겠다.)
                     res = rx.recv() => {
                         let (msg, other_addr) = res.unwrap();
 
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
                         if addr != other_addr {
-                            writer.write_all(format!("{} : {}",other_addr, msg).as_bytes()).await.unwrap();
+                            writer.write_all(format!("{} : {}",user_id_string.trim(), msg).as_bytes()).await.unwrap();
                         }
                     }
                 }
@@ -112,13 +149,18 @@ async fn main() -> Result<(), anyhow::Error> {
 ///
 /// ## Return :
 ///
-///     로그인 성공인지 실패인지에 대한 db 처리 결과를 그대로 보낸다.
-///     Aysnc Result<bool, anyhow::Error>
+///     로그인 유무에 따른 유저 아이디를 리턴한다. 아니면 빈값이거나 에러
+///     Aysnc Result<String, anyhow::Error>
 ///
 /// ## 수정 내역 :
 ///
 ///     23.11.24
 ///     아이디 비빌번호 가져와서 체크하고 전체문자 보내는 것 까지 init
+/// 
+///     23.11.25
+///     입력된 사용자 ID로 리턴하는 것으로 변경 함
+///     사용자 ID 틀리면 다시 입력하게 해줌
+#[instrument]
 async fn check_db_logic<'a>(
     writer: &mut WriteHalf<'a>,
     reader: &mut BufReader<ReadHalf<'a>>,
@@ -126,7 +168,7 @@ async fn check_db_logic<'a>(
     tx: &broadcast::Sender<(String, SocketAddr)>,
     rx: &mut broadcast::Receiver<(String, SocketAddr)>,
     addr: &SocketAddr,
-) -> Result<bool, anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     // 아이디를 입력해 주세요 -> todo!(space 비밀번호 식으로 해서 같이 받자.)
     writer
         .write_all("아이디를 입력하여 주세요\n".as_bytes())
@@ -139,29 +181,54 @@ async fn check_db_logic<'a>(
     reader.read_line(text).await?;
 
     // 로그인 체크 함수 call 해주고
-    let login_bool = db_tiberius(&text.trim().to_string(), &"1234".to_string()).await;
+    let mut login_bool = db_tiberius(&text.trim().to_string(), &"1234".to_string()).await?;
 
-    // true면
-    if login_bool {
-        // 처음 입장 할 때 전체에게 인사 ?
-        tx.send((
-            format!("{} 님이 입장 하였습니다.\n", addr).to_string(),
-            *addr,
-        ))
-        .unwrap();
-
-        // 전체한테 전달하고
-        let (msg, other_addr) = rx.recv().await.unwrap();
-
-        // 내용 뿌린다.
-        writer
-            .write_all(format!("{} : {}", other_addr, msg).as_bytes())
-            .await
+    // 로그인 루프 시작
+    loop {
+        // true면
+        if login_bool {
+            // 처음 입장 할 때 전체에게 인사 ?
+            tx.send((
+                format!("{} 님이 입장 하였습니다.\n", text.trim()).to_string(),
+                *addr,
+            ))
             .unwrap();
-    }
 
-    // 최종 로그인 정보 리턴해준다 -> todo!(나중에는 아이디 정보 넘겨주는 걸로 해서 표시나 로그아웃 가능하게)
-    Ok(login_bool)
+            // 전체한테 전달하고
+            let (msg, other_addr) = rx.recv().await.unwrap();
+
+            // 내용 뿌린다.
+            writer
+                .write_all(format!("{} : {}", other_addr, msg).as_bytes())
+                .await
+                .unwrap();
+
+            // 로그인 루프 종료
+
+            return Ok(text.clone());
+        }
+        // 아니면 다시 물어본다 -> 재귀로 하면 오버플로 날듯?
+        else {
+            warn!("사용자가 잘못 입력한 듯? 사용자 id : {}", text);
+
+            // 사용자가 다시 입력하라고 한다.
+            writer
+                .write_all("아이디 혹은 비밀번호 잘못 입력하신듯?\n".as_bytes())
+                .await?;
+
+            // 문자 초기화 해주고
+            text.clear();
+
+            // 다시 입력하게 해준다.
+            reader.read_line(text).await?;
+
+            // 그리고 받은 정보로 다시 반영하고
+            login_bool = db_tiberius(&text.trim().to_string(), &"1234".to_string()).await?;
+
+            // continue;
+            continue;
+        }
+    }
 }
 
 // async fn broadcast_all_of_them() {}

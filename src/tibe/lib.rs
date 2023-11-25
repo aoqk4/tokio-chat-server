@@ -2,8 +2,8 @@ use anyhow::Result;
 use tiberius::{AuthMethod, Client, Config, Query};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
-use tracing::{info, warn};
 use tracing::instrument;
+use tracing::{info, warn};
 
 /// ## Title:
 ///
@@ -26,7 +26,11 @@ use tracing::instrument;
 ///
 ///     23.11.24
 ///     아이디 비빌번호 가져오는 기본적인 함수 init
-/// 
+///
+///     23.11.25
+///     로깅 하는거 추가
+///     Row가 None값일 때 핸들링 추가
+///
 #[instrument]
 pub async fn db_tiberius(user_id: &String, user_pw: &String) -> Result<bool, anyhow::Error> {
     // ENV에 DB 정보 가져온다.
@@ -84,16 +88,21 @@ pub async fn db_tiberius(user_id: &String, user_pw: &String) -> Result<bool, any
     match res.await {
         Ok(res) => {
             // row 데이터 가져오면
+            if res.is_none() {
+                warn!("DB에 해당 사항이 없음");
+                return Ok(false);
+            }
             let row = res.unwrap();
+
             // 데이터 있는지 체크하고 리턴
             if row.len() > 0 {
                 // 서버 로깅
                 info!("UserName: {} 의 DB 처리 성공!", user_id);
                 return Ok(true);
             }
-            // 서버 로깅
-            warn!("UserName: {} 가 DB에 없음", user_id);
+
             Ok(false)
+            // 서버 로깅
         }
         Err(err) => {
             warn!("DB 상의 에러 에러 : {}", err);
