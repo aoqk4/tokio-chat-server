@@ -100,19 +100,8 @@ async fn main() -> Result<(), anyhow::Error> {
                         if res.unwrap() == 0 {
                             return Ok::<(), anyhow::Error>;
                         }
-                        // 만약에 그만두고 싶어요 하면
-                        // todo -> 누가 보냈는지를 어떻게 알아야하지?
-                        if line.trim() == "IWANTEXIT"{
-                            // 채팅창 나갔다고 알려주고
-
-                            // let id_handler = arc_id_handler_clone.lock().await;
-
-                            return Ok::<(), anyhow::Error>;
-                        }
-
                         // 메시지 버퍼와 IP 주소를 보낸다.
                         tx.send((line.clone(), addr)).unwrap();
-
                         // 메시지 공간 청소
                         line.clear();
                     }
@@ -120,13 +109,21 @@ async fn main() -> Result<(), anyhow::Error> {
                     res = rx.recv() => {
                         let (msg, other_addr) = res.unwrap();
 
+                        // ID 가져올라고 락 걸어주고
+                        let mut id_handler = arc_id_handler_clone.lock().await;
+
+                        if msg.trim() == "IWANTEXIT" {
+                            writer.write_all(format!("얘좀 나가고 싶데요. {}", id_handler.get(&other_addr).unwrap()).as_bytes()).await.unwrap();
+                            info!("이용자 {} : {} 가 방을 나갔네요",other_addr, id_handler.get(&other_addr).unwrap());
+
+                            id_handler.remove(&other_addr);
+                        }
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
-                        if addr != other_addr {
-                            // ID 가져올라고 락 걸어주고
-                            let id_handler = arc_id_handler_clone.lock().await;
+                        else if addr != other_addr {
                             // 메시지 보내준다.
                             writer.write_all(format!("{} : {}",id_handler.get(&other_addr).unwrap(), msg).as_bytes()).await.unwrap();
                         }
+
                     }
                 }
             }
