@@ -1,12 +1,15 @@
 use anyhow::Result;
-use std::net::SocketAddr;
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{
         tcp::{ReadHalf, WriteHalf},
         TcpListener,
     },
-    sync::broadcast::{self},
+    sync::{
+        broadcast::{self},
+        Mutex,
+    },
 };
 use tracing::instrument;
 use tracing::{info, warn};
@@ -25,6 +28,8 @@ async fn main() -> Result<(), anyhow::Error> {
     // 채널 생성한다.
     let (tx, mut _rx) = broadcast::channel::<(String, SocketAddr)>(10);
 
+    let arc_id_handler = Arc::new(Mutex::new(HashMap::<SocketAddr, String>::new()));
+
     // 루프 시작
     loop {
         // 클라이언트 접속을 허가한다 -> SOCKET 받아온다.
@@ -36,8 +41,12 @@ async fn main() -> Result<(), anyhow::Error> {
         // 각 clone된 tx에 대한 rx를 구독해 주어야 한다(같은 tx이긴 하다...).
         let mut rx = tx.subscribe();
 
+        let arc_id_handler_clone = Arc::clone(&arc_id_handler);
+
         // 스레드 생성
         tokio::spawn(async move {
+            let mut user_id_string = String::new();
+
             // 소켓의 역할을 나눈다 -> 소유권을 한 놈이 다가져 가는 것을 막는다.
             let (reader, mut writer) = socket.split();
 
@@ -59,6 +68,11 @@ async fn main() -> Result<(), anyhow::Error> {
                     if res.is_empty() {
                         return Ok::<(), anyhow::Error>;
                     }
+                    user_id_string = login_res.unwrap().trim().to_string();
+
+                    let mut id_handler = arc_id_handler_clone.lock().await;
+
+                    id_handler.insert(addr, user_id_string);
                 }
                 // 에러처리
                 Err(err) => {
@@ -68,8 +82,7 @@ async fn main() -> Result<(), anyhow::Error> {
             }
 
             // return 안당했으면 (에러 안났으면) unwrap() 해주고
-            let user_id_string = login_res.unwrap();
-            
+
             // ID 처리 끝났으니깐 한번 비워준다.
             line.clear();
 
@@ -87,18 +100,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
                         // 만약에 그만두고 싶어요 하면
                         if line.trim() == "IWANTEXIT"{
-                            
                             // 채팅창 나갔다고 알려주고
-                            tx.send((format!("{} : 얘가 채팅창을 나갔어요.\n", user_id_string.trim()), addr)).unwrap();
-                            info!("채팅 그만두고 싶은 놈 : {}", user_id_string.trim());
 
-                            // rx에 전달해주고
-                            let (msg, other_addr) = rx.recv().await.unwrap();
-
-                            // 다른사람들에게 나갔다고 뿌려준다.
-                            if addr != other_addr {
-                                writer.write_all(msg.as_bytes()).await.unwrap();
-                            }
+                            // let id_handler = arc_id_handler_clone.lock().await;
 
                             return Ok::<(), anyhow::Error>;
                         }
@@ -115,7 +119,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
                         if addr != other_addr {
-                            writer.write_all(format!("{} : {}",user_id_string.trim(), msg).as_bytes()).await.unwrap();
+                            let id_handler = arc_id_handler_clone.lock().await;
+                            writer.write_all(format!("{} : {}",id_handler.get(&other_addr).unwrap(), msg).as_bytes()).await.unwrap();
                         }
                     }
                 }
@@ -156,7 +161,7 @@ async fn main() -> Result<(), anyhow::Error> {
 ///
 ///     23.11.24
 ///     아이디 비빌번호 가져와서 체크하고 전체문자 보내는 것 까지 init
-/// 
+///
 ///     23.11.25
 ///     입력된 사용자 ID로 리턴하는 것으로 변경 함
 ///     사용자 ID 틀리면 다시 입력하게 해줌
@@ -195,11 +200,11 @@ async fn check_db_logic<'a>(
             .unwrap();
 
             // 전체한테 전달하고
-            let (msg, other_addr) = rx.recv().await.unwrap();
+            let (msg, _) = rx.recv().await.unwrap();
 
             // 내용 뿌린다.
             writer
-                .write_all(format!("{} : {}", other_addr, msg).as_bytes())
+                .write_all(format!("{} : {}", text.trim(), msg).as_bytes())
                 .await
                 .unwrap();
 
