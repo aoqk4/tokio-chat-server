@@ -28,6 +28,8 @@ async fn main() -> Result<(), anyhow::Error> {
     // 채널 생성한다.
     let (tx, mut _rx) = broadcast::channel::<(String, SocketAddr)>(10);
 
+    // (현재 로그인 되고 채팅치고 있는) 유저 표시 위한 아이디 핸들링 Arc 생성 ->
+    // async 쓰레드여서 반드시 비동기로
     let arc_id_handler = Arc::new(Mutex::new(HashMap::<SocketAddr, String>::new()));
 
     // 루프 시작
@@ -41,6 +43,7 @@ async fn main() -> Result<(), anyhow::Error> {
         // 각 clone된 tx에 대한 rx를 구독해 주어야 한다(같은 tx이긴 하다...).
         let mut rx = tx.subscribe();
 
+        // 각 쓰레드 루프마다 사용 할 수 있게 떠주고
         let arc_id_handler_clone = Arc::clone(&arc_id_handler);
 
         // 스레드 생성
@@ -68,10 +71,13 @@ async fn main() -> Result<(), anyhow::Error> {
                     if res.is_empty() {
                         return Ok::<(), anyhow::Error>;
                     }
+                    // return 안당했으면 (에러 안났으면) unwrap() 해주고
                     user_id_string = login_res.unwrap().trim().to_string();
 
+                    // match가 끝나면 알아서 해제되게 안에서 걸어주고
                     let mut id_handler = arc_id_handler_clone.lock().await;
 
+                    // 넣는다.
                     id_handler.insert(addr, user_id_string);
                 }
                 // 에러처리
@@ -80,9 +86,6 @@ async fn main() -> Result<(), anyhow::Error> {
                     return Ok::<(), anyhow::Error>;
                 }
             }
-
-            // return 안당했으면 (에러 안났으면) unwrap() 해주고
-
             // ID 처리 끝났으니깐 한번 비워준다.
             line.clear();
 
@@ -97,8 +100,8 @@ async fn main() -> Result<(), anyhow::Error> {
                         if res.unwrap() == 0 {
                             return Ok::<(), anyhow::Error>;
                         }
-
                         // 만약에 그만두고 싶어요 하면
+                        // todo -> 누가 보냈는지를 어떻게 알아야하지?
                         if line.trim() == "IWANTEXIT"{
                             // 채팅창 나갔다고 알려주고
 
@@ -119,7 +122,9 @@ async fn main() -> Result<(), anyhow::Error> {
 
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
                         if addr != other_addr {
+                            // ID 가져올라고 락 걸어주고
                             let id_handler = arc_id_handler_clone.lock().await;
+                            // 메시지 보내준다.
                             writer.write_all(format!("{} : {}",id_handler.get(&other_addr).unwrap(), msg).as_bytes()).await.unwrap();
                         }
                     }
@@ -165,7 +170,6 @@ async fn main() -> Result<(), anyhow::Error> {
 ///     23.11.25
 ///     입력된 사용자 ID로 리턴하는 것으로 변경 함
 ///     사용자 ID 틀리면 다시 입력하게 해줌
-#[instrument]
 async fn check_db_logic<'a>(
     writer: &mut WriteHalf<'a>,
     reader: &mut BufReader<ReadHalf<'a>>,
