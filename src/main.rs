@@ -48,8 +48,6 @@ async fn main() -> Result<(), anyhow::Error> {
 
         // 스레드 생성
         tokio::spawn(async move {
-            let mut user_id_string = String::new();
-
             // 소켓의 역할을 나눈다 -> 소유권을 한 놈이 다가져 가는 것을 막는다.
             let (reader, mut writer) = socket.split();
 
@@ -71,14 +69,11 @@ async fn main() -> Result<(), anyhow::Error> {
                     if res.is_empty() {
                         return Ok::<(), anyhow::Error>;
                     }
-                    // return 안당했으면 (에러 안났으면) unwrap() 해주고
-                    user_id_string = login_res.unwrap().trim().to_string();
-
-                    // match가 끝나면 알아서 해제되게 안에서 걸어주고
+                    // match가 끝나면 알아서 해제되게 안에서 락 걸어주고
                     let mut id_handler = arc_id_handler_clone.lock().await;
 
                     // 넣는다.
-                    id_handler.insert(addr, user_id_string);
+                    id_handler.insert(addr, login_res.unwrap().trim().to_string());
                 }
                 // 에러처리
                 Err(err) => {
@@ -112,18 +107,27 @@ async fn main() -> Result<(), anyhow::Error> {
                         // ID 가져올라고 락 걸어주고
                         let mut id_handler = arc_id_handler_clone.lock().await;
 
+                        // 만약에 나가고 싶다 하면
                         if msg.trim() == "IWANTEXIT" {
-                            writer.write_all(format!("얘좀 나가고 싶데요. {}", id_handler.get(&other_addr).unwrap()).as_bytes()).await.unwrap();
-                            info!("이용자 {} : {} 가 방을 나갔네요",other_addr, id_handler.get(&other_addr).unwrap());
+                            // 특정 아이디 있는지 한번 체크해주고
+                            if let Some(txt) = id_handler.remove(&other_addr) {
+                                // 로그 뿌리고
+                                info!("{} 님이 나가셨어요.\n", txt);
 
-                            id_handler.remove(&other_addr);
+                                // 다른 사람들에게는 로그아웃 했다고 알려준다.
+                                tx.send((format!("{} 님이 나가셨어요.\n", txt), addr)).unwrap();
+                            }
+                        }
+                        // 만약 로그인 정보가 없으면?
+                        else if id_handler.get(&other_addr) == None && addr != other_addr {
+                            // 로그아웃 되었다는 걸로 취급하고 일단 그대로 보낸다.
+                            writer.write_all(msg.as_bytes()).await.unwrap();
                         }
                         // IP 주소 확인해서 내 정보가 아니면? -> 메시지를 출력한다.
                         else if addr != other_addr {
                             // 메시지 보내준다.
-                            writer.write_all(format!("{} : {}",id_handler.get(&other_addr).unwrap(), msg).as_bytes()).await.unwrap();
+                            writer.write_all(format!("{} : {}",id_handler.get(&other_addr).unwrap() ,msg).as_bytes()).await.unwrap();
                         }
-
                     }
                 }
             }
