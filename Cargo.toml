@@ -28,6 +28,5 @@ features = ["compat"]
 [dependencies.tiberius]
 version = "*"
 
-
 [lib]
 path = "src/tibe/lib.rs"

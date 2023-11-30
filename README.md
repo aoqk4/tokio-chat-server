@@ -8,7 +8,6 @@
 DB 연동 함께해서 로그인 후 입장 가능캐
 
 ### 연동 클라이언트 개발
-https://github.com/aoqk4/tokio-chat-client 참조.
 
 ### tracing을 활용한 로깅
 간단한 오류처리 핸들링과 알림 로깅작업
@@ -16,12 +15,10 @@ https://github.com/aoqk4/tokio-chat-client 참조.
 ### tiberius를 활용한 sql server 연동
 기본적인 CRUD를 클라이언트로부터 요청 받아 시행 (현재는 Select 일부 구현 완료)
 
-## 진행 예정
-
 ### 현재 코드 모듈화?
-Struct - Trait 단위로 묶기
-
 main에 코드를 최대한 줄여보자.
+
+## 진행 예정
 
 ### tonic..axum 등을 활용한 웹 페이지 연동?
 grpc나 restapi 를 활용한 웹 로그 테이블 제작
@@ -32,3 +29,18 @@ None 값등 상정할 변수가 너무 많음..
 
 ### 채팅창 방 나누기?
 n명 단위로 끊어서 새로운 broadcast 만들어 주기?
+
+
+## 실행
+
+### 서버 실행
+
+```
+cargo run --bin server
+```
+
+### 클라이언트 실행
+
+```
+cargo run --bin client
+```

@@ -1,13 +1,98 @@
 use anyhow::Result;
 use tiberius::{AuthMethod, Client, Config, Query};
 use tokio::net::TcpStream;
-use tokio_util::compat::TokioAsyncWriteCompatExt;
+use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use tracing::instrument;
 use tracing::{info, warn};
 
 /// ## Title:
 ///
-///     tiberius 를 통한 로그인 체크
+///     tiberius 설정 파일 생성
+///
+/// ## Parameters :
+///
+///     ip: &str
+///     IP 주소
+///
+///     port: u16
+///     포트 주소
+///
+/// ## Return :
+///
+///     DB 설정값에 대한 Result
+///     Aysnc Result<bool, anyhow::Error>
+///
+/// ## 수정 내역 :
+///
+///     23.11.30
+///     DB 설정 함수 분리, 약간의 로깅 추가
+///
+async fn config_db(ip: &str, port: u16, ig_creted: bool) -> Result<Config, anyhow::Error> {
+    // ENV에 DB 정보 가져온다.
+    dotenvy::dotenv()?;
+
+    // DB 정보란 init
+    let mut config = Config::new();
+
+    // IP:port 정보 입력해준다.
+    config.host(ip);
+    config.port(port);
+
+    // 보안정보(아이디 비밀번호) 입력해준다.
+    config.authentication(AuthMethod::sql_server(
+        dotenvy::var("USER_ID")?,
+        dotenvy::var("USER_PW")?,
+    ));
+
+    if ig_creted {
+        // 인증서 무시한다는 뜻
+        config.trust_cert();
+    }
+
+    info!("DB 설정 성공");
+
+    Ok(config)
+}
+
+/// ## Title:
+///
+///     DB와의 연결
+///
+/// ## Parameters :
+///
+///     config: tiberius::Config
+///     DB 관련 설정
+///
+///
+/// ## Return :
+///
+///     DB 연결에 대한 client(tcp연결 형식) Result
+///     Aysnc Result<Client<Compat<TcpStream>>, anyhow::Error>
+///
+/// ## 수정 내역 :
+///
+///     23.11.30
+///     DB 연결 함수 분리, 약간의 로깅 추가
+///
+async fn connect_db(config: Config) -> Result<Client<Compat<TcpStream>>, anyhow::Error> {
+    // DB Tcp 연결 위한 요청 해준다.
+    let tcp = TcpStream::connect(config.get_addr()).await?;
+
+    // Nagle Algo를 무시한다.(스트림을 있는 그래로 기다리지 않고 보낸다.)
+    // Nagle Algo는 https://devjh.tistory.com/106 참조 함.
+    tcp.set_nodelay(true)?;
+
+    // DB 주소로 TCP 연결 해준다.
+    let client = Client::connect(config, tcp.compat_write()).await?;
+
+    info!("DB와의 연결 성공");
+
+    Ok(client)
+}
+
+/// ## Title:
+///
+///     tiberius 를 통한 DB 체크
 ///
 /// ## Parameters :
 ///
@@ -30,40 +115,16 @@ use tracing::{info, warn};
 ///     23.11.25
 ///     로깅 하는거 추가
 ///     Row가 None값일 때 핸들링 추가
-///
 #[instrument]
-pub async fn db_tiberius(user_id: &String, user_pw: &String) -> Result<bool, anyhow::Error> {
-    // ENV에 DB 정보 가져온다.
-    dotenvy::dotenv().unwrap();
+pub async fn db_tiberius(user_info: (&str, &str)) -> Result<bool, anyhow::Error> {
+    let config = config_db("127.0.0.1", 1433, true).await?;
 
-    // DB 정보란 init
-    let mut config = Config::new();
-
-    // IP:port 정보 입력해준다.
-    config.host("127.0.0.1");
-    config.port(1433);
-
-    // 보안정보(아이디 비밀번호) 입력해준다.
-    config.authentication(AuthMethod::sql_server(
-        dotenvy::var("USER_ID").unwrap(),
-        dotenvy::var("USER_PW").unwrap(),
-    ));
-
-    // 인증서 무시한다는 뜻
-    config.trust_cert();
-
-    // DB Tcp 연결 위한 요청 해준다.
-    let tcp = TcpStream::connect(config.get_addr()).await?;
-
-    // Nagle Algo를 무시한다.(스트림을 있는 그래로 기다리지 않고 보낸다.)
-    // Nagle Algo는 https://devjh.tistory.com/106 참조 함.
-    tcp.set_nodelay(true)?;
-
-    // DB 주소로 TCP 연결 해준다.
-    let mut client = Client::connect(config, tcp.compat_write()).await?;
+    let mut client = connect_db(config).await?;
 
     // 데이터 가져오기 위한 결과 파라미터 매칭 (숫자로 해도 상관은 없나보다. 근데 좀더 명확하게 표현하려고)
     let params = vec![String::from("CHAT_USER"), String::from("CHAT_PW")];
+
+    let (user_id, user_pw) = user_info;
 
     // 적용할 sql문
     let sql_query_string = format!(
