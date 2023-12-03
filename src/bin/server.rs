@@ -25,8 +25,11 @@ struct BroadCastInfo {
 
 // 생성 impl
 impl BroadCastInfo {
-    fn new(tx:broadcast::Sender<(String, SocketAddr)>, rx:broadcast::Receiver<(String, SocketAddr)>) -> Self {
-        Self {tx, rx}
+    fn new(
+        tx: broadcast::Sender<(String, SocketAddr)>,
+        rx: broadcast::Receiver<(String, SocketAddr)>,
+    ) -> Self {
+        Self { tx, rx }
     }
 }
 
@@ -74,7 +77,7 @@ async fn check_db_logic<'a>(
         &SocketAddr,
     ),
     text: &mut String,
-    tx: broadcast::Sender<(String, SocketAddr)>
+    tx: broadcast::Sender<(String, SocketAddr)>,
 ) -> Result<String, anyhow::Error> {
     // 일반 소켓 writer, reader 분리 해준다.
     let (writer, reader, addr) = tcprw;
@@ -91,7 +94,7 @@ async fn check_db_logic<'a>(
     reader.read_line(text).await?;
 
     // 로그인 체크 함수 call 해주고
-    let mut login_bool = db_tiberius((&text.trim(), &"1234")).await?;
+    let mut login_bool = db_tiberius((text.trim(), "1234")).await?;
 
     // 로그인 루프 시작
     loop {
@@ -143,7 +146,7 @@ async fn check_db_logic<'a>(
 
 /// ## Title :
 ///
-///     쓰레드 돌리는 비동기 채팅 서버 루프 서버 
+///     쓰레드 돌리는 비동기 채팅 서버 루프 서버
 ///     Select! 매크로 포함한 비동기
 ///
 /// ## Parameters :
@@ -173,13 +176,13 @@ async fn check_db_logic<'a>(
 ///
 async fn chat_server_handler(
     broadcast_info: BroadCastInfo,
-    socket:&mut TcpStream,
-    addr:SocketAddr,
-    mutex_handler_clone: Arc<Mutex<HashMap<SocketAddr, String>>>
+    socket: &mut TcpStream,
+    addr: SocketAddr,
+    mutex_handler_clone: Arc<Mutex<HashMap<SocketAddr, String>>>,
 ) -> Result<(), anyhow::Error> {
     // 소켓의 역할을 나눈다 -> 소유권을 한 놈이 다가져 가는 것을 막는다.
     let (reader, mut writer) = socket.split();
-    
+
     // BUFREADER를 통해 READHALF에 있는 버퍼를 읽어 들인다고 선언한다.
     let mut reader = BufReader::new(reader);
 
@@ -191,8 +194,7 @@ async fn chat_server_handler(
     let mut rx = broadcast_info.rx;
 
     // 로그인 체크 Result 만들어 주고
-    let login_res =
-        check_db_logic((&mut writer, &mut reader, &addr), &mut line, tx.clone()).await;
+    let login_res = check_db_logic((&mut writer, &mut reader, &addr), &mut line, tx.clone()).await;
 
     // 에러 핸들링 위한 match
     match login_res {
@@ -297,12 +299,14 @@ async fn main() -> Result<(), anyhow::Error> {
         let arc_id_handler_clone = Arc::clone(&arc_id_handler);
 
         // 브로드캐스트 구조체 생성
-        let broadcast_info =  BroadCastInfo::new(tx, rx);
+        let broadcast_info = BroadCastInfo::new(tx, rx);
 
         // 스레드 생성
         tokio::spawn(async move {
             // 채널 서버 시작
-            chat_server_handler(broadcast_info, &mut socket, addr, arc_id_handler_clone).await.unwrap();
+            chat_server_handler(broadcast_info, &mut socket, addr, arc_id_handler_clone)
+                .await
+                .unwrap();
         });
     }
 }

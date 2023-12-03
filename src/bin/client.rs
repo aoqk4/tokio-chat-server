@@ -42,8 +42,6 @@ async fn main() -> Result<(), anyhow::Error> {
                     }
                     println!("{}", buf.trim());
                     buf.clear();
-
-                    break;
                 }
                 //  버퍼 보내기 위한 lock 건다.
                 mut cmd_text = print_line.lock() => {
@@ -59,13 +57,10 @@ async fn main() -> Result<(), anyhow::Error> {
         }
     });
 
-    tokio_thread_handle.abort();
-
     // 버퍼 입력용 & 소켓 유지 위한 루프 시작
     loop {
         // 입력하기 위해서 lock 건다.
         let mut use_input_line = input_line.lock().await;
-
         // 버퍼 입력
         stdin()
             .read_line(&mut use_input_line)
