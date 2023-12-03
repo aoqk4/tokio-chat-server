@@ -20,6 +20,9 @@ async fn main() -> Result<(), anyhow::Error> {
     // 버퍼 출력(write)용 clone
     let print_line = Arc::clone(&new_line);
 
+    // 서버 끄는 스위치
+    let mut server_switch = true;
+
     // 쓰레드 생성
     let tokio_thread_handle = tokio::spawn(async move {
         // r w로 소켓 분리 하고
@@ -37,9 +40,6 @@ async fn main() -> Result<(), anyhow::Error> {
                     if res.unwrap() == 0 {
                         break;
                     }
-                    if buf == "IWANTEXIT" {
-                        break;
-                    }
                     println!("{}", buf.trim());
                     buf.clear();
                 }
@@ -50,8 +50,22 @@ async fn main() -> Result<(), anyhow::Error> {
                     // 보낼 것이 있으면 보낸다.
                     if cmd_text.len() > 1 {
                         writer.flush().await.unwrap();
+
+                        // 만약 서버 끄고 싶으면?
+                        if cmd_text.trim() == "IWANTEXIT" {
+
+                            // 종료한다고 하고
+                            println!("종료됩니다.");
+
+                            // 스위치 끈다.
+                            server_switch = false;
+
+                            // break
+                            break;
+                        }
                         cmd_text.clear();
                     }
+
                 }
             }
         }
@@ -68,7 +82,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
         // 만약 쓰레드 종료 하면?
         if tokio_thread_handle.is_finished() {
-            // break;
+            break;
+        }
+        // 만약 서버 끄고 싶으면?
+        if !server_switch {
             break;
         }
     }

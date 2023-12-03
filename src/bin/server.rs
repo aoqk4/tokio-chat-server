@@ -78,6 +78,7 @@ async fn check_db_logic<'a>(
     ),
     text: &mut String,
     tx: broadcast::Sender<(String, SocketAddr)>,
+    rx: &mut broadcast::Receiver<(String, SocketAddr)>,
 ) -> Result<String, anyhow::Error> {
     // 일반 소켓 writer, reader 분리 해준다.
     let (writer, reader, addr) = tcprw;
@@ -102,19 +103,19 @@ async fn check_db_logic<'a>(
         if login_bool {
             // 처음 입장 할 때 전체에게 인사 ?
             tx.send((
-                format!("{} 님이 입장 하였습니다.\n", text.trim()).to_string(),
+                format!("어서오세요 {}\n", text.trim()).to_string(),
                 *addr,
             ))
             .unwrap();
 
             // 전체한테 전달하고
-            // let (msg, _) = rx.recv().await.unwrap();
+            let (msg, _) = rx.recv().await.unwrap();
 
             // 내용 뿌린다.
-            // writer
-            //     .write_all(format!("{} : {}", text.trim(), msg).as_bytes())
-            //     .await
-            //     .unwrap();
+            writer
+                .write_all(format!("{} : {}", text.trim(), msg).as_bytes())
+                .await
+                .unwrap();
 
             // 로그인 루프 종료
 
@@ -194,7 +195,13 @@ async fn chat_server_handler(
     let mut rx = broadcast_info.rx;
 
     // 로그인 체크 Result 만들어 주고
-    let login_res = check_db_logic((&mut writer, &mut reader, &addr), &mut line, tx.clone()).await;
+    let login_res = check_db_logic(
+        (&mut writer, &mut reader, &addr),
+        &mut line,
+        tx.clone(),
+        &mut rx,
+    )
+    .await;
 
     // 에러 핸들링 위한 match
     match login_res {
