@@ -7,7 +7,7 @@ use tokio::{
         TcpListener, TcpStream,
     },
     sync::{
-        broadcast::{self},
+        broadcast::{self, Sender, Receiver},
         Mutex,
     },
 };
@@ -102,11 +102,8 @@ async fn check_db_logic<'a>(
         // true면
         if login_bool {
             // 처음 입장 할 때 전체에게 인사 ?
-            tx.send((
-                format!("어서오세요 {}\n", text.trim()).to_string(),
-                *addr,
-            ))
-            .unwrap();
+            tx.send((format!("어서오세요 {}\n", text.trim()).to_string(), *addr))
+                .unwrap();
 
             // 전체한테 전달하고
             let (msg, _) = rx.recv().await.unwrap();
@@ -290,6 +287,10 @@ async fn main() -> Result<(), anyhow::Error> {
     // (현재 로그인 되고 채팅치고 있는) 유저 표시 위한 아이디 핸들링 Arc 생성 ->
     // async 쓰레드여서 반드시 비동기로
     let arc_id_handler = Arc::new(Mutex::new(HashMap::<SocketAddr, String>::new()));
+
+    // 생각 1. 결국 broadcast 역할을 하는 것은 broadcast의 채널
+    // 분리 시킬 수 만 있다면 채팅방을 만드는 것은 쉽지 않을까?
+    let mut ch_hash: Arc<Vec<(Sender<(String, SocketAddr)>, Receiver<(String, SocketAddr)>)>>= Arc::new(vec![]);
 
     // 루프 시작
     loop {
