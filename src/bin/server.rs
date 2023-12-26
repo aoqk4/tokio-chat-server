@@ -7,7 +7,7 @@ use tokio::{
         TcpListener, TcpStream,
     },
     sync::{
-        broadcast::{self, Sender, Receiver},
+        broadcast::{self, Receiver, Sender},
         Mutex,
     },
 };
@@ -15,6 +15,15 @@ use tracing::instrument;
 use tracing::{info, warn};
 
 use tokio_chat_server::db_tiberius;
+
+// 최대 채널 수
+const MAX_CHANNEL: usize = 10;
+
+// 채널 당 최대 인원 수
+const MAX_CHAN_USERS: usize = 10;
+
+// vec부터 tx rx 넣기엔 clippy에서 긴가보다. -> 커스텀 타입 설정
+type Channels = Vec<(Sender<(String, SocketAddr)>, Receiver<(String, SocketAddr)>)>;
 
 // 파라미터로 두기엔 너무 길어서 struct화
 #[derive(Debug)]
@@ -159,7 +168,7 @@ async fn check_db_logic<'a>(
 ///     IP:Port 정보
 ///
 ///     mutex_handler_clone
-///     쓰레드 공유 정보(여기서는 id Hashmpa)
+///     쓰레드 공유 정보(여기서는 id Hashmap)
 ///
 ///
 /// ## Return :
@@ -282,23 +291,60 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // channel의 정확한 타입 추론 불가능 하다면? -> turbofish 문법으로 타입 추정 가능캐 하기
     // 채널 생성한다.
-    let (tx, mut _rx) = broadcast::channel::<(String, SocketAddr)>(10);
+
+    let mut test_vec: Channels = vec![];
+
+    for _ in 0..MAX_CHANNEL {
+        let (tx, rx) = broadcast::channel::<(String, SocketAddr)>(10);
+        test_vec.push((tx, rx));
+    }
 
     // (현재 로그인 되고 채팅치고 있는) 유저 표시 위한 아이디 핸들링 Arc 생성 ->
     // async 쓰레드여서 반드시 비동기로
     let arc_id_handler = Arc::new(Mutex::new(HashMap::<SocketAddr, String>::new()));
 
-    // 생각 1. 결국 broadcast 역할을 하는 것은 broadcast의 채널
-    // 분리 시킬 수 만 있다면 채팅방을 만드는 것은 쉽지 않을까?
-    let mut ch_hash: Arc<Vec<(Sender<(String, SocketAddr)>, Receiver<(String, SocketAddr)>)>>= Arc::new(vec![]);
+    // 채널 당 인원 수 todo> -> redis라던가 RDBMS로 하면 조금 더 깔끔 하지 않을까?
+    let mut id_count: usize = 0;
+
+    // 현재 채널 수 카운트 todo> -> redis라던가 RDBMS로 하면 조금 더 깔끔 하지 않을까?
+    let mut ch_count = 0;
 
     // 루프 시작
     loop {
         // 클라이언트 접속을 허가한다 -> SOCKET 받아온다.
         let (mut socket, addr) = listener.accept().await?;
 
+        // 채널이 가득 찼다면?
+        if ch_count == MAX_CHANNEL - 1 {
+            warn!("채널 가득 참!");
+
+            // 채널이 가득 찼다고 알려주고
+            socket
+                .write_all("채널이 가득 찼대요".as_bytes())
+                .await
+                .unwrap();
+            
+            // 내보낸다. todo? -> 접속을 끊지 않고 연결 시켜주는 방법이 있지 않을까??
+            continue;
+        }
+
+        // 채널 안에 유저가 가득 찼다면?
+        if id_count == MAX_CHAN_USERS {
+            info!(
+                "{}번 채널 용량 꽉 참! {}번 채널로 이동",
+                ch_count + 1,
+                ch_count + 2
+            );
+
+            // 채널 번호 하나 늘린다.
+            ch_count += 1;
+
+            // 다시 있는 인원 초기화
+            id_count = 0;
+        }
+
         // tx를 하나 클론 떠온다.
-        let tx: broadcast::Sender<(String, SocketAddr)> = tx.clone();
+        let tx: broadcast::Sender<(String, SocketAddr)> = test_vec[ch_count].0.clone();
 
         // 각 clone된 tx에 대한 rx를 구독해 주어야 한다(같은 tx이긴 하다...).
         let rx: broadcast::Receiver<(String, SocketAddr)> = tx.subscribe();
@@ -316,5 +362,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 .await
                 .unwrap();
         });
+
+        id_count += 1;
     }
 }
