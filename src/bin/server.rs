@@ -315,7 +315,7 @@ async fn main() -> Result<(), anyhow::Error> {
         let (mut socket, addr) = listener.accept().await?;
 
         // 채널이 가득 찼다면?
-        if ch_count == MAX_CHANNEL - 1 {
+        if ch_count >= MAX_CHANNEL {
             warn!("채널 가득 참!");
 
             // 채널이 가득 찼다고 알려주고
@@ -332,8 +332,8 @@ async fn main() -> Result<(), anyhow::Error> {
         if id_count == MAX_CHAN_USERS {
             info!(
                 "{}번 채널 용량 꽉 참! {}번 채널로 이동",
-                ch_count + 1,
-                ch_count + 2
+                ch_count,
+                ch_count + 1
             );
 
             // 채널 번호 하나 늘린다.
